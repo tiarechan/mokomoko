@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ツムツム風パズルゲーム</title>
+    <title>どうぶつツムツム風パズル</title>
     <style>
         body {
             margin: 0;
             padding: 0;
-            background-color: #f0f0f0;
+            background-color: #f7f1e3;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -20,17 +20,22 @@
             margin-top: 20px;
             position: relative;
         }
-        #score-board {
-            font-size: 24px;
+        #header-board {
+            width: 360px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 20px;
             font-weight: bold;
-            color: #333;
+            color: #404040;
             margin-bottom: 10px;
+            box-sizing: border-box;
+            padding: 0 10px;
         }
         canvas {
             background-color: #ffeaa7;
             border: 4px solid #ffb142;
             border-radius: 20px;
-            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.15);
             cursor: pointer;
         }
     </style>
@@ -38,20 +43,26 @@
 <body>
 
     <div id="game-container">
-        <div id="score-board">SCORE: <span id="score">0</span></div>
-        <canvas id="gameCanvas" width="360" height="500"></canvas>
+        <div id="header-board">
+            <div>SCORE: <span id="score">0</span></div>
+            <div>TIME: <span id="timer">03:00</span></div>
+        </div>
+        <canvas id="gameCanvas" width="360" height="520"></canvas>
     </div>
 
 <script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const scoreDisplay = document.getElementById('score');
+const timerDisplay = document.getElementById('timer');
 
 // ゲーム設定
 const BALL_RADIUS = 22;
-const COLORS = ['#ff7675', '#74b9ff', '#55efc4', '#ffeaa7', '#a29bfe']; // キャラの色（5色）
-const GRAVITY = 0.4;
-const FRICTION = 0.98;
+// 5種類：0=猫(ピンク), 1=うさぎ(青), 2=犬(黄色), 3=猫(紫), 4=うさぎ(緑)
+const ANIMAL_TYPES = ['cat', 'rabbit', 'dog', 'cat', 'rabbit'];
+const COLORS = ['#ff7675', '#74b9ff', '#fed330', '#a29bfe', '#55efc4'];
+const GRAVITY = 0.35;
+const FRICTION = 0.95;
 const MAX_BALLS = 45;
 
 let balls = [];
@@ -59,16 +70,39 @@ let selectedBalls = [];
 let isDragging = false;
 let score = 0;
 
-// ボール（キャラクター）クラス
+// タイマー設定 (3分 = 180秒)
+let timeRemaining = 180;
+let isGameOver = false;
+
+// タイマーカウントダウン
+const countdown = setInterval(() => {
+    if (timeRemaining <= 0) {
+        clearInterval(countdown);
+        isGameOver = true;
+        isDragging = false;
+        selectedBalls = [];
+        return;
+    }
+    timeRemaining--;
+    
+    // 表示の整形 (分:秒)
+    let minutes = Math.floor(timeRemaining / 60);
+    let seconds = timeRemaining % 60;
+    timerDisplay.textContent = 
+        String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+}, 1000);
+
+// ボール（どうぶつキャラクター）クラス
 class Ball {
-    constructor(x, y, colorIndex) {
+    constructor(x, y, typeIndex) {
         this.x = x;
         this.y = y;
-        this.vx = (Math.random() - 0.5) * 2;
+        this.vx = (Math.random() - 0.5) * 3;
         this.vy = 0;
         this.radius = BALL_RADIUS;
-        this.colorIndex = colorIndex;
-        this.color = COLORS[colorIndex];
+        this.typeIndex = typeIndex;
+        this.type = ANIMAL_TYPES[typeIndex];
+        this.color = COLORS[typeIndex];
     }
 
     update() {
@@ -78,94 +112,176 @@ class Ball {
         this.x += this.vx;
         this.y += this.vy;
 
-        // 壁との衝突（左右）
+        // 壁との衝突（左右）- めり込み防止のため半径分押し戻す
         if (this.x - this.radius < 0) {
             this.x = this.radius;
-            this.vx *= -0.4;
+            this.vx *= -0.3;
         } else if (this.x + this.radius > canvas.width) {
             this.x = canvas.width - this.radius;
-            this.vx *= -0.4;
+            this.vx *= -0.3;
         }
 
         // 床との衝突
         if (this.y + this.radius > canvas.height) {
             this.y = canvas.height - this.radius;
-            this.vy *= -0.3; // 跳ね返り
-            this.vx *= 0.8;  // 床の摩擦
+            this.vy *= -0.2; // 適度なバウンド
+            this.vx *= 0.8;  // 摩擦
         }
     }
 
     draw() {
+        ctx.save();
+        
+        // --- 1. 耳の描画 ---
+        ctx.fillStyle = this.color;
+        ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+        ctx.lineWidth = 2;
+
+        if (this.type === 'cat') {
+            // 左耳（三角）
+            ctx.beginPath();
+            ctx.moveTo(this.x - this.radius + 2, this.y - 10);
+            ctx.lineTo(this.x - this.radius - 4, this.y - this.radius - 4);
+            ctx.lineTo(this.x - 4, this.y - this.radius + 2);
+            ctx.closePath();
+            ctx.fill(); ctx.stroke();
+
+            // 右耳（三角）
+            ctx.beginPath();
+            ctx.moveTo(this.x + this.radius - 2, this.y - 10);
+            ctx.lineTo(this.x + this.radius + 4, this.y - this.radius - 4);
+            ctx.lineTo(this.x + 4, this.y - this.radius + 2);
+            ctx.closePath();
+            ctx.fill(); ctx.stroke();
+
+        } else if (this.type === 'rabbit') {
+            // 左耳（長い楕円）
+            ctx.save();
+            ctx.translate(this.x - 10, this.y - this.radius + 5);
+            ctx.scale(0.5, 1.5);
+            ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            ctx.restore();
+
+            // 右耳（長い楕円）
+            ctx.save();
+            ctx.translate(this.x + 10, this.y - this.radius + 5);
+            ctx.scale(0.5, 1.5);
+            ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            ctx.restore();
+
+        } else if (this.type === 'dog') {
+            // 左耳（垂れ耳）
+            ctx.beginPath();
+            ctx.ellipse(this.x - this.radius + 2, this.y, 6, 14, Math.PI / 6, 0, Math.PI * 2);
+            ctx.fill(); ctx.stroke();
+
+            // 右耳（垂れ耳）
+            ctx.beginPath();
+            ctx.ellipse(this.x + this.radius - 2, this.y, 6, 14, -Math.PI / 6, 0, Math.PI * 2);
+            ctx.fill(); ctx.stroke();
+        }
+
+        // --- 2. 胴体（ベースの円） ---
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         ctx.fillStyle = this.color;
         ctx.fill();
-        
-        // 選択されている場合は枠線を描画
+
+        // 選択時の白い太枠 / 通常の薄い枠
         if (selectedBalls.includes(this)) {
             ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = 4;
             ctx.stroke();
         } else {
-            ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-            ctx.lineWidth = 1;
+            ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+            ctx.lineWidth = 1.5;
             ctx.stroke();
         }
 
-        // 簡単な「目」を描画してキャラクター感を出す
+        // --- 3. 顔のパーツ ---
         ctx.fillStyle = '#2d3436';
+        // 目
         ctx.beginPath();
-        ctx.arc(this.x - 6, this.y - 2, 2, 0, Math.PI * 2);
-        ctx.arc(this.x + 6, this.y - 2, 2, 0, Math.PI * 2);
+        ctx.arc(this.x - 6, this.y - 1, 2.5, 0, Math.PI * 2);
+        ctx.arc(this.x + 6, this.y - 1, 2.5, 0, Math.PI * 2);
         ctx.fill();
+
+        // 鼻・口元
+        ctx.beginPath();
+        ctx.arc(this.x, this.y + 3, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // ほっぺ（ほんのりピンク）
+        ctx.fillStyle = 'rgba(255, 121, 121, 0.6)';
+        ctx.beginPath();
+        ctx.arc(this.x - 12, this.y + 3, 3, 0, Math.PI * 2);
+        ctx.arc(this.x + 12, this.y + 3, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
     }
 }
 
-// ボール同士の衝突判定と位置補正（簡易物理演算）
+// キャラクター同士の衝突判定と、重なり防止処理（高精度版）
 function resolveCollisions() {
-    for (let i = 0; i < balls.length; i++) {
-        for (let j = i + 1; j < balls.length; j++) {
-            let b1 = balls[i];
-            let b2 = balls[j];
+    // 物理的なめり込みを完全に防ぐため、1フレーム内で4回反復して計算する(Sub-stepping)
+    const iterations = 4;
+    
+    for (let step = 0; step < iterations; step++) {
+        for (let i = 0; i < balls.length; i++) {
+            for (let j = i + 1; j < balls.length; j++) {
+                let b1 = balls[i];
+                let b2 = balls[j];
 
-            let dx = b2.x - b1.x;
-            let dy = b2.y - b1.y;
-            let distance = Math.sqrt(dx * dx + dy * dy);
-            let minDist = b1.radius + b2.radius;
+                let dx = b2.x - b1.x;
+                let dy = b2.y - b1.y;
+                let distance = Math.sqrt(dx * dx + dy * dy);
+                let minDist = b1.radius + b2.radius;
 
-            if (distance < minDist) {
-                // 重なりを解消する方向
-                let overlap = minDist - distance;
-                let nx = dx / distance;
-                let ny = dy / distance;
+                // 接触・重なりがある場合
+                if (distance < minDist) {
+                    // 安全のため距離が完全に0の場合のバグ回避
+                    if (distance === 0) {
+                        b2.x += 1;
+                        continue;
+                    }
 
-                // 位置の補正（お互い半分ずつ押し出す）
-                b1.x -= nx * overlap * 0.5;
-                b1.y -= ny * overlap * 0.5;
-                b2.x += nx * overlap * 0.5;
-                b2.y += ny * overlap * 0.5;
+                    // 重なっている距離（押し戻す量）
+                    let overlap = minDist - distance;
+                    let nx = dx / distance; // 正規化ベクトルX
+                    let ny = dy / distance; // 正規化ベクトルY
 
-                // 速度の反発
-                let kx = b1.vx - b2.vx;
-                let ky = b1.vy - b2.vy;
-                let p = 2 * (nx * kx + ny * ky) / 2; // 質量は同じとする
+                    // 重ならないように即座に位置を等しく100%押し戻す
+                    b1.x -= nx * overlap * 0.5;
+                    b1.y -= ny * overlap * 0.5;
+                    b2.x += nx * overlap * 0.5;
+                    b2.y += ny * overlap * 0.5;
 
-                b1.vx -= p * nx * 0.5;
-                b1.vy -= p * ny * 0.5;
-                b2.vx += p * nx * 0.5;
-                b2.vy += p * ny * 0.5;
+                    // 衝突による速度の変化（反発）
+                    let kx = b1.vx - b2.vx;
+                    let ky = b1.vy - b2.vy;
+                    let p = (nx * kx + ny * ky); 
+
+                    if (p > 0) { // お互いに近づき合っている場合のみ速度を反射
+                        b1.vx -= p * nx * 0.3;
+                        b1.vy -= p * ny * 0.3;
+                        b2.vx += p * nx * 0.3;
+                        b2.vy += p * ny * 0.3;
+                    }
+                }
             }
         }
     }
 }
 
-// ボールの補充
+// ツムの補充
 function spawnBalls() {
+    if (isGameOver) return;
     while (balls.length < MAX_BALLS) {
         let x = Math.random() * (canvas.width - BALL_RADIUS * 2) + BALL_RADIUS;
-        let y = -BALL_RADIUS - (Math.random() * 100); // 画面上部から時間差で落とす
-        let colorIndex = Math.floor(Math.random() * COLORS.length);
-        balls.push(new Ball(x, y, colorIndex));
+        let y = -BALL_RADIUS - (Math.random() * 120); // 上空からバラバラに落とす
+        let typeIndex = Math.floor(Math.random() * COLORS.length);
+        balls.push(new Ball(x, y, typeIndex));
     }
 }
 
@@ -174,7 +290,7 @@ function getDistance(x1, y1, x2, y2) {
     return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
 }
 
-// マウス・タッチ位置の取得
+// 座標取得
 function getMousePos(e) {
     const rect = canvas.getBoundingClientRect();
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -185,14 +301,14 @@ function getMousePos(e) {
     };
 }
 
-// イベントリスナー（操作系）
+// --- イベントハンドラ ---
 function handleStart(e) {
+    if (isGameOver) return;
     isDragging = true;
     const pos = getMousePos(e);
     
-    // クリックした位置にボールがあるかチェック
     for (let ball of balls) {
-        if (getDistance(pos.x, pos.y, ball.x, ball.y) < ball.radius) {
+        if (getDistance(pos.x, pos.y, ball.x, ball.y) < ball.radius * 1.2) {
             selectedBalls = [ball];
             break;
         }
@@ -200,17 +316,17 @@ function handleStart(e) {
 }
 
 function handleMove(e) {
-    if (!isDragging || selectedBalls.length === 0) return;
+    if (!isDragging || selectedBalls.length === 0 || isGameOver) return;
     const pos = getMousePos(e);
     const lastBall = selectedBalls[selectedBalls.length - 1];
 
     for (let ball of balls) {
-        // すでに選択されておらず、同じ色で、直前のボールと距離が近い場合
+        // 同じどうぶつ種別、未選択、かつ直前のツムと距離が近い(少し判定を広めにして繋ぎやすく)
         if (!selectedBalls.includes(ball) && 
-            ball.colorIndex === lastBall.colorIndex && 
-            getDistance(lastBall.x, lastBall.y, ball.x, ball.y) < BALL_RADIUS * 2.5) {
+            ball.typeIndex === lastBall.typeIndex && 
+            getDistance(lastBall.x, lastBall.y, ball.x, ball.y) < BALL_RADIUS * 2.8) {
             
-            // マウスの近くにあるかもチェック
+            // 指・マウスの位置がそのツムの近くにあるか
             if (getDistance(pos.x, pos.y, ball.x, ball.y) < ball.radius * 1.5) {
                 selectedBalls.push(ball);
             }
@@ -219,39 +335,37 @@ function handleMove(e) {
 }
 
 function handleEnd() {
-    if (!isDragging) return;
+    if (!isDragging || isGameOver) return;
     isDragging = false;
 
-    // 3個以上繋がっていたら消去
     if (selectedBalls.length >= 3) {
-        // スコア計算（消した数に応じてボーナス）
-        let points = selectedBalls.length * 100 + (selectedBalls.length - 3) * 50;
+        // 消去スコア（多く繋ぐほどボーナスUP）
+        let points = selectedBalls.length * 100 + (selectedBalls.length - 3) * 60;
         score += points;
         scoreDisplay.textContent = score;
 
-        // ボール配列から削除
+        // 対象のボールを配列から消去
         balls = balls.filter(ball => !selectedBalls.includes(ball));
     }
-
     selectedBalls = [];
 }
 
-// マウスイベント
+// PC用
 canvas.addEventListener('mousedown', handleStart);
 canvas.addEventListener('mousemove', handleMove);
 window.addEventListener('mouseup', handleEnd);
 
-// タッチイベント（スマホ対応）
+// スマホ用
 canvas.addEventListener('touchstart', handleStart);
 canvas.addEventListener('touchmove', handleMove);
 window.addEventListener('touchend', handleEnd);
 
 
-// メインループ
+// --- メインループ ---
 function gameLoop() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 物理演算と更新
+    // 物理処理（高精度衝突解決 ＋ 各自の移動更新）
     resolveCollisions();
     balls.forEach(ball => ball.update());
 
@@ -261,7 +375,7 @@ function gameLoop() {
     // 描画
     balls.forEach(ball => ball.draw());
 
-    // 繋がっている線を引く
+    // なぞっている最中の光るラインを描画
     if (selectedBalls.length > 1) {
         ctx.beginPath();
         ctx.moveTo(selectedBalls[0].x, selectedBalls[0].y);
@@ -269,13 +383,30 @@ function gameLoop() {
             ctx.lineTo(selectedBalls[i].x, selectedBalls[i].y);
         }
         ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 5;
+        ctx.shadowColor = '#fff';
+        ctx.shadowBlur = 10;
+        ctx.lineWidth = 6;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.stroke();
+        ctx.shadowBlur = 0; // シャドウをリセット
     }
 
-    requestAnimationFrame(gameLoop);
+    // ゲームオーバー画面の表示
+    if (isGameOver) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 36px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 20);
+        
+        ctx.font = '24px sans-serif';
+        ctx.fillText(`FINAL SCORE: ${score}`, canvas.width / 2, canvas.height / 2 + 30);
+    } else {
+        requestAnimationFrame(gameLoop);
+    }
 }
 
 // ゲーム開始
